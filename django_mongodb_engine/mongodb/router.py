@@ -53,10 +53,7 @@ class MongoDBRouter(object):
         if db in self.mongodb_databases:
             return model._meta.app_label  in self.managed_apps or key in self.managed_models
         elif model._meta.app_label in self.managed_apps or key in self.managed_models:
-            if db in self.mongodb_databases:
-                return True
-            else:
-                return False
+            return True
         return None
 
     def valid_for_db_engine(self, driver, model):
