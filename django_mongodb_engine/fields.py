@@ -225,6 +225,7 @@ class GridFSField(CharField):
 
         def _get(self):
             from django.db import connections
+            print self.__class__.objects.db
             gdfs = GridFS(connections[self.__class__.objects.db].db_connection.db)
             if not hasattr(self, att_cache_name) and not getattr(self, att_val_name, None) and getattr(self, att_oid_name, None):
                 val = gdfs.get(getattr(self, att_oid_name))
@@ -270,7 +271,7 @@ class GridFSField(CharField):
             gdfs.delete(oid)
 
         if not self._as_string:
-            value.seek(0)
+            value = value.seek(0)
             value = value.read()
         
         oid = gdfs.put(value)
