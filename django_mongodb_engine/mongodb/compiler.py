@@ -22,7 +22,6 @@ from django.utils.tree import Node
 
 from djangotoolbox.db.basecompiler import NonrelQuery, NonrelCompiler, \
     NonrelInsertCompiler, NonrelUpdateCompiler, NonrelDeleteCompiler
-from _pydev_inspect import func
 
 TYPE_MAPPING_FROM_DB = {
     'unicode':  lambda val: unicode(val),
@@ -90,7 +89,6 @@ def _get_mapping(db_type, value, mapping):
     # TODO - what if the data is represented as list on the python side?
     if isinstance(value, list):
         return map(_func, value)
-    
     return _func(value)
 
 def python2db(db_type, value):

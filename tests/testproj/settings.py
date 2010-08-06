@@ -93,7 +93,6 @@ TEMPLATE_DIRS = (
 )
 
 INSTALLED_APPS = (
-    'django_mongodb_engine',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',

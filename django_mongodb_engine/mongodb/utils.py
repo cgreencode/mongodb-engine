@@ -1,10 +1,7 @@
 from django.utils.functional import SimpleLazyObject
 
 def dict_keys_to_str(dictionary, recursive=False):
-    res = dict([(str(k), (not isinstance(v, dict) and v) or (recursive and dict_keys_to_str(v)) or v) for k,v in dictionary.items()])
-    if '_id' in res:
-        res["id"] = res.pop("_id")
-    return res 
+    return dict([(str(k), (not isinstance(v, dict) and v) or (recursive and dict_keys_to_str(v)) or v) for k,v in dictionary.items()])
 
 class ModelLazyObject(SimpleLazyObject):
     """
