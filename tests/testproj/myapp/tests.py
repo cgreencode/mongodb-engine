@@ -5,6 +5,7 @@ from django.test import TestCase
 from testproj.myapp.models import Entry, Blog, StandardAutoFieldModel, Person, TestFieldModel, DynamicModel
 import datetime
 from pymongo.objectid import ObjectId
+from django_mongodb_engine.serializer import LazyModelInstance
 
 class MongoDjTest(TestCase):
     multi_db = True
@@ -320,3 +321,29 @@ class MongoDjTest(TestCase):
 
     def test_update_id(self):
         Entry.objects.filter(title='Last Update Test').update(id=ObjectId())
+
+    def test_lazy_model_instance(self):
+        l1 = LazyModelInstance(Entry, 'some-pk')
+        l2 = LazyModelInstance(Entry, 'some-pk')
+
+        self.assertEqual(l1, l2)
+
+        obj = Entry(title='foobar')
+        obj.save()
+
+        l3 = LazyModelInstance(Entry, obj.id)
+        self.assertEqual(l3._wrapped, None)
+        self.assertEqual(obj, l3)
+        self.assertNotEqual(l3._wrapped, None)
+
+    def test_lazy_model_instance_in_list(self):
+        obj = TestFieldModel()
+        related = DynamicModel(gen=42)
+        obj.mlist.append(related)
+        obj.save()
+        self.assertNotEqual(related.id, None)
+        obj = TestFieldModel.objects.get()
+        self.assertEqual(obj.mlist[0]._wrapped, None)
+        # query will be done NOW:
+        self.assertEqual(obj.mlist[0].gen, 42)
+        self.assertNotEqual(obj.mlist[0]._wrapped, None)
