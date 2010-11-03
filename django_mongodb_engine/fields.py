@@ -94,8 +94,7 @@ class EmbeddedModelField(DictField):
             if not values:
                 return None
 
-            if "_id" in values:
-                values["id"] = values.pop("_id")
+            values["id"] = values.pop('_id', None)
 
             # In version 0.2, the layout of the serialized model instance changed.
             # Cleanup up old instances from keys that aren't used any more.
