@@ -10,7 +10,6 @@ def skip(func):
 
 class EmbeddedModelFieldTestCase(TestCase):
     def test_field_docstring(self):
-        # This is a 1:1 copy of EmbeddedModelField's doctest
         bob = Customer(
             name='Bob', last_name='Laxley',
             address=Address(street='Behind the Mountains 23',
@@ -68,21 +67,13 @@ class EmbeddedModelFieldTestCase(TestCase):
         self.assertNotEqual(obj.dict_emb['blah'].datetime_auto_now_add, obj.dict_emb['blah'].datetime_auto_now)
         self.assertEqual(obj.dict_emb['foo'].charfield, 'bar')
 
-    def test_legacy_field(self):
-        # LegacyLegacyModelField should behave like EmbeddedLegacyModelField for
-        # "new-style" data sets
-        LegacyModel.objects.create(legacy=EmbeddedModel(charfield='blah'))
-        self.assertEqual(LegacyModel.objects.get().legacy.charfield, u'blah')
+    def test_query_embedded(self):
+        Model(x=3, em=EmbeddedModel(charfield='foo')).save()
+        obj = Model(x=3, em=EmbeddedModel(charfield='blurg'))
+        obj.save()
+        Model(x=3, em=EmbeddedModel(charfield='bar')).save()
 
-        # LegacyLegacyModelField should keep the embedded model's 'id' if the data
-        # set contains it. To add one, we have to do a manual update here:
-        from testproj.utils import get_pymongo_collection
-        collection = get_pymongo_collection('embedded_legacymodel')
-        collection.update({}, {'$set' : {'legacy._id' : 42}}, safe=True)
-        self.assertEqual(LegacyModel.objects.get().legacy.id, 42)
-
-        # If the data record contains '_app' or '_model', they should be
-        # stripped out so the resulting model instance is not populated with them.
-        collection.update({}, {'$set' : {'legacy._model' : 'a', 'legacy._app' : 'b'}}, safe=True)
-        self.assertFalse(hasattr(LegacyModel.objects.get().legacy, '_model'))
-        self.assertFalse(hasattr(LegacyModel.objects.get().legacy, '_app'))
+        # XXX: Why does Model.objects.get(em=A....) behave differently here?
+        # (Crashes with a TypeError)
+        obj_from_db = Model.objects.get(em=A('id', obj.em.id))
+        self.assertEqual(obj, obj_from_db)
