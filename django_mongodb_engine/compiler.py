@@ -10,6 +10,8 @@ from django.db.models import F
 
 from django.db.models.sql import aggregates as sqlaggregates
 from django.db.models.sql.constants import MULTI, SINGLE
+from django.db.models.sql.where import AND, OR
+from django.utils.tree import Node
 
 import pymongo
 from pymongo.objectid import ObjectId
@@ -131,64 +133,46 @@ class DBQuery(NonrelQuery):
             self._ordering.append((order, direction))
         return self
 
-    # This function is used by the default add_filters() implementation
-    @safe_call
-    def add_filter(self, column, lookup_type, negated, db_type, value):
-        # Emulated/converted lookups
+    def add_filters(self, filters, query=None):
+        if query is None:
+            query = self.db_query
 
-        if isinstance(value, A):
-            field = first(lambda field:field.name == column, self.fields)
-            column, value = value.as_q(field)
+        children = self._get_children(filters.children)
 
-        if column == self.query.get_meta().pk.column:
-            column = '_id'
+        if filters.connector is OR:
+            or_conditions = query.setdefault('$or', [])
 
-        if negated and lookup_type in NEGATED_OPERATORS_MAP:
-            op = NEGATED_OPERATORS_MAP[lookup_type]
-            negated = False
-        else:
-            op = OPERATORS_MAP[lookup_type]
-
-        # TODO: does not work yet (need field)
-        value = op(self.convert_value_for_db(db_type, value))
-
-        if negated:
-            value = {'$not': value}
-
-        self._add_filter(column, lookup_type, db_type, value)
-
-    def _add_filter(self, column, lookup_type, db_type, value):
-        query = self.db_query
-        # Extend existing filters if there are multiple filter() calls
-        # on the same field
-        if column in query:
-            existing = query[column]
-            if isinstance(existing, dict):
-                keys = tuple(existing.keys())
-                if len(keys) != 1:
-                    raise NotImplementedError(
-                        'Unsupported filter combination on column %s: '
-                        '%r and %r' % (column, existing, value))
-                key = keys[0]
-                if isinstance(value, dict):
-                    inequality = ('$gt', '$lt', '$gte', '$lte')
-                    if key in inequality and value.keys()[0] in inequality:
-                        existing.update(value)
-                    else:
-                        raise NotImplementedError(
-                            'Unsupported filter combination on column %s: '
-                            '%r and %r' % (column, existing, value))
-                else:
-                    if key == '$all':
-                        existing['$all'].append(value)
-                    else:
-                        raise NotImplementedError(
-                            'Unsupported filter combination on column %s: '
-                            '%r and %r' % (column, existing, value))
+        for child in children:
+            if filters.connector is OR:
+                subquery = {}
             else:
-                query[column] = {'$all': [existing, value]}
-        else:
-            query[column] = value
+                subquery = query
+            if isinstance(child, Node):
+                self.add_filters(child, query=subquery)
+                if filters.connector is OR:
+                    if child.connector is OR:
+                        or_conditions.extend(subquery.pop('$or'))
+                    if subquery:
+                        or_conditions.append(subquery)
+                else:
+                    query.update(subquery)
+            else:
+                column, lookup_type, db_type, value = self._decode_child(child)
+                if column == self.query.get_meta().pk.column:
+                    column = '_id'
+
+                if isinstance(value, A):
+                    field = first(lambda field: field.attname == column, self.fields)
+                    column, value = value.as_q(field)
+
+                op_func = OPERATORS_MAP[lookup_type]
+                value = op_func(self.convert_value_for_db(db_type, value))
+                if column in subquery:
+                    subquery[column].update(value)
+                else:
+                    subquery[column] = value
+
+                query.update(subquery)
 
     def _get_results(self):
         results = self._collection.find(self.db_query)
@@ -205,49 +189,6 @@ class SQLCompiler(NonrelCompiler):
     A simple query: no joins, no distinct, etc.
     """
     query_class = DBQuery
-
-    def get_filters(self, where):
-        if where.connector != "AND":
-            raise Exception("MongoDB only supports joining "
-                "filters with and, not or.")
-        assert where.connector == "AND"
-        filters = {}
-        for child in where.children:
-            if isinstance(child, self.query.where_class):
-                child_filters = self.get_filters(child)
-                for k, v in child_filters.iteritems():
-                    assert k not in filters
-                    if where.negated:
-                        filters.update(self.negate(k, v))
-                    else:
-                        filters[k] = v
-            else:
-                try:
-                    field, val = self.make_atom(*child, negated=where.negated)
-                    filters[field] = val
-                except NotImplementedError:
-                    pass
-        return filters
-
-    def make_atom(self, lhs, lookup_type, value_annotation, params_or_value, negated):
-
-        if hasattr(lhs, "process"):
-            lhs, params = lhs.process(
-                lookup_type, params_or_value, self.connection
-            )
-        else:
-            # apparently this code is never executed
-            assert 0
-            params = Field().get_db_prep_lookup(lookup_type, params_or_value,
-                connection=self.connection, prepared=True)
-        assert isinstance(lhs, (list, tuple))
-        table, column, _ = lhs
-        assert table == self.query.model._meta.db_table
-        if column == self.query.model._meta.pk.column:
-            column = "_id"
-
-        val = self.convert_value_for_db(_, params[0])
-        return column, val
 
     def _split_db_type(self, db_type):
         try:
@@ -410,10 +351,13 @@ class SQLUpdateCompiler(NonrelUpdateCompiler, SQLCompiler):
 
     @safe_call
     def execute_sql(self, return_id=False):
-        filters = self.get_filters(self.query.where)
+        multi = True
 
         vals = {}
         for field, o, value in self.query.values:
+            if field.unique:
+                multi = False
+
             if hasattr(value, 'prepare_database_save'):
                 value = value.prepare_database_save(field)
             else:
@@ -436,11 +380,9 @@ class SQLUpdateCompiler(NonrelUpdateCompiler, SQLCompiler):
                 vals.setdefault("$inc", {})[lhs.name] = rhs
             else:
                 vals.setdefault("$set", {})[field.column] = value
-        return self._collection.update(
-            filters,
-            vals,
-            multi=True
-        )
+
+        return self._collection.update(self.build_query().db_query,
+                                       vals, multi=multi)
 
 class SQLDeleteCompiler(NonrelDeleteCompiler, SQLCompiler):
     pass
