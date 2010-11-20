@@ -36,7 +36,7 @@ class LazyModelInstance(SimpleLazyObject):
 
 class TransformDjango(SONManipulator):
     def transform_incoming(self, value, collection):
-        if isinstance(value, (list, tuple, set, QuerySet)):
+        if isinstance(value, (list, tuple, set)):
             return [self.transform_incoming(item, collection) for item in value]
 
         if isinstance(value, dict):

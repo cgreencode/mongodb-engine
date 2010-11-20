@@ -1,6 +1,6 @@
 import sys
 import re
-from datetime import datetime
+import datetime
 
 from functools import wraps
 
@@ -222,49 +222,6 @@ class SQLCompiler(NonrelCompiler):
     """
     query_class = DBQuery
 
-    def get_filters(self, where):
-        if where.connector != "AND":
-            raise Exception("MongoDB only supports joining "
-                "filters with and, not or.")
-        assert where.connector == "AND"
-        filters = {}
-        for child in where.children:
-            if isinstance(child, self.query.where_class):
-                child_filters = self.get_filters(child)
-                for k, v in child_filters.iteritems():
-                    assert k not in filters
-                    if where.negated:
-                        filters.update(self.negate(k, v))
-                    else:
-                        filters[k] = v
-            else:
-                try:
-                    field, val = self.make_atom(*child, **{'negated' : where.negated})
-                    filters[field] = val
-                except NotImplementedError:
-                    pass
-        return filters
-
-    def make_atom(self, lhs, lookup_type, value_annotation, params_or_value, negated):
-
-        if hasattr(lhs, "process"):
-            lhs, params = lhs.process(
-                lookup_type, params_or_value, self.connection
-            )
-        else:
-            # apparently this code is never executed
-            assert 0
-            params = Field().get_db_prep_lookup(lookup_type, params_or_value,
-                connection=self.connection, prepared=True)
-        assert isinstance(lhs, (list, tuple))
-        table, column, _ = lhs
-        assert table == self.query.model._meta.db_table
-        if column == self.query.model._meta.pk.column:
-            column = "_id"
-
-        val = self.convert_value_for_db(_, params[0])
-        return column, val
-
     def _split_db_type(self, db_type):
         try:
             db_type, db_subtype = db_type.split(':', 1)
@@ -286,19 +243,12 @@ class SQLCompiler(NonrelCompiler):
                 return dict((key, self.convert_value_for_db(db_subtype, subvalue))
                             for key, subvalue in value.iteritems())
 
-        if isinstance(value, list):
+        if isinstance(value, (set, list, tuple)):
             # most likely a list of ObjectIds when doing a .delete() query
             return [self.convert_value_for_db(db_type, val) for val in value]
 
         if db_type == 'objectid':
             return ObjectId(value)
-
-        if db_type == 'date':
-            return datetime(value.year, value.month, value.day)
-
-        if db_type == 'time':
-            return datetime(1, 1, 1, value.hour, value.minute,
-                            value.second, value.microsecond)
 
         # Pass values of any type not covered above as they are.
         # PyMongo will complain if they can't be encoded.
