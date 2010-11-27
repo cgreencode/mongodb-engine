@@ -19,8 +19,7 @@ from pymongo.objectid import ObjectId
 from djangotoolbox.db.basecompiler import NonrelQuery, NonrelCompiler, \
     NonrelInsertCompiler, NonrelUpdateCompiler, NonrelDeleteCompiler
 
-from .query import A, BaseExtraQuery
-from django_mongodb_engine.search.query import Ft
+from .query import A
 
 def safe_regex(regex, *re_args, **re_kwargs):
     def wrapper(value):
@@ -47,7 +46,6 @@ OPERATORS_MAP = {
 #    'year':     lambda val: {'$gte': val[0], '$lt': val[1]},
     'isnull':   lambda val: None if val else {'$ne': None},
     'in':       lambda val: {'$in': val},
-    # 'ft':       lambda val: Ft(val)
 }
 
 NEGATED_OPERATORS_MAP = {
@@ -169,9 +167,9 @@ class DBQuery(NonrelQuery):
                         "Try replacing your condition with  ~Q(foo__in=[...])"
                     )
 
-                if isinstance(value, BaseExtraQuery):
+                if isinstance(value, A):
                     field = first(lambda field: field.attname == column, self.fields)
-                    column, value = value.as_q(self.query.model, field)
+                    column, value = value.as_q(field)
 
                 if self._negated:
                     if lookup_type in NEGATED_OPERATORS_MAP:
@@ -369,11 +367,6 @@ class SQLInsertCompiler(NonrelInsertCompiler, SQLCompiler):
             data['_id'] = data.pop(pk_column)
         except KeyError:
             pass
-
-        # lets get full text marked fields and tokenize them
-        for field in getattr(self.query.model._meta, 'full_text', []):
-            data["_%s_ft" % field] = self.query.model._meta.tokenizer.tokenize(data[field])
-        
         return self._save(data, return_id)
 
 # TODO: Define a common nonrel API for updates and add it to the nonrel
