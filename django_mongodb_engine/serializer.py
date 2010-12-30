@@ -1,5 +1,4 @@
 from django.db import models
-from django.db.models.query import QuerySet
 from django.utils.functional import SimpleLazyObject
 from django.utils.importlib import import_module
 from pymongo.son_manipulator import SONManipulator
