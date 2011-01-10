@@ -7,4 +7,3 @@
 .project
 django_mongodb_engine.egg-info
 build
-.build

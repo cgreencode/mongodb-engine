@@ -19,8 +19,8 @@ from pymongo.objectid import ObjectId
 from djangotoolbox.db.basecompiler import NonrelQuery, NonrelCompiler, \
     NonrelInsertCompiler, NonrelUpdateCompiler, NonrelDeleteCompiler
 
-from .query import A
-from .contrib import RawQuery, RawSpec
+from .query import A, BaseExtraQuery
+from django_mongodb_engine.search.query import Ft
 
 def safe_regex(regex, *re_args, **re_kwargs):
     def wrapper(value):
@@ -47,6 +47,7 @@ OPERATORS_MAP = {
 #    'year':     lambda val: {'$gte': val[0], '$lt': val[1]},
     'isnull':   lambda val: None if val else {'$ne': None},
     'in':       lambda val: {'$in': val},
+    # 'ft':       lambda val: Ft(val)
 }
 
 NEGATED_OPERATORS_MAP = {
@@ -125,14 +126,10 @@ class DBQuery(NonrelQuery):
         return self
 
     def add_filters(self, filters, query=None):
-        children = self._get_children(filters.children)
-
         if query is None:
             query = self.db_query
 
-            if len(children) == 1 and isinstance(children[0], RawQuery):
-                self.db_query = children[0].query
-                return
+        children = self._get_children(filters.children)
 
         if filters.connector is OR:
             or_conditions = query['$or'] = []
@@ -145,9 +142,6 @@ class DBQuery(NonrelQuery):
                 subquery = {}
             else:
                 subquery = query
-
-            if isinstance(child, RawQuery):
-                raise TypeError("Can not combine raw queries with regular filters")
 
             if isinstance(child, Node):
                 if filters.connector is OR and child.connector is OR:
@@ -163,6 +157,7 @@ class DBQuery(NonrelQuery):
                     or_conditions.extend(subquery.pop('$or', []))
                     or_conditions.append(subquery)
             else:
+                import pdb; pdb.set_trace()
                 column, lookup_type, db_type, value = self._decode_child(child)
                 if column == self.query.get_meta().pk.column:
                     column = '_id'
@@ -175,9 +170,9 @@ class DBQuery(NonrelQuery):
                         "Try replacing your condition with  ~Q(foo__in=[...])"
                     )
 
-                if isinstance(value, A):
+                if isinstance(value, BaseExtraQuery):
                     field = first(lambda field: field.attname == column, self.fields)
-                    column, value = value.as_q(field)
+                    column, value = value.as_q(self.query.model, field)
 
                 if self._negated:
                     if lookup_type in NEGATED_OPERATORS_MAP:
@@ -375,6 +370,11 @@ class SQLInsertCompiler(NonrelInsertCompiler, SQLCompiler):
             data['_id'] = data.pop(pk_column)
         except KeyError:
             pass
+
+        # lets get full text marked fields and tokenize them
+        for field in getattr(self.query.model._meta, 'full_text', []):
+            data["_%s_ft" % field] = self.query.model._meta.tokenizer.tokenize(data[field])
+        
         return self._save(data, return_id)
 
 # TODO: Define a common nonrel API for updates and add it to the nonrel
@@ -384,26 +384,20 @@ class SQLUpdateCompiler(NonrelUpdateCompiler, SQLCompiler):
 
     @safe_call
     def execute_sql(self, return_id=False):
-        values = self.query.values
-        if len(values) == 1 and isinstance(values[0][2], RawSpec):
-            spec, kwargs = values[0][2].spec, values[0][2].kwargs
-            kwargs['multi'] = True
-        else:
-            spec, kwargs = self._get_update_spec()
-        return self._collection.update(self.build_query().db_query, spec, **kwargs)
-
-    def _get_update_spec(self):
         multi = True
-        spec = {}
+
+        vals = {}
         for field, o, value in self.query.values:
             if field.unique:
                 multi = False
+
             if hasattr(value, 'prepare_database_save'):
                 value = value.prepare_database_save(field)
             else:
                 value = field.get_db_prep_save(value, connection=self.connection)
 
             value = self.convert_value_for_db(field.db_type(), value)
+
             if hasattr(value, "evaluate"):
                 assert value.connector in (value.ADD, value.SUB)
                 assert not value.negated
@@ -416,11 +410,12 @@ class SQLUpdateCompiler(NonrelUpdateCompiler, SQLCompiler):
                 else:
                     assert value.connector == value.ADD
                     rhs, lhs = lhs, rhs
-                spec.setdefault("$inc", {})[lhs.name] = rhs
+                vals.setdefault("$inc", {})[lhs.name] = rhs
             else:
-                spec.setdefault("$set", {})[field.column] = value
+                vals.setdefault("$set", {})[field.column] = value
 
-        return spec, {'multi' : multi}
+        return self._collection.update(self.build_query().db_query,
+                                       vals, multi=multi)
 
 class SQLDeleteCompiler(NonrelDeleteCompiler, SQLCompiler):
     pass

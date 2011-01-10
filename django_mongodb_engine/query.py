@@ -1,13 +1,21 @@
-from djangotoolbox.fields import AbstractIterableField, EmbeddedModelField
+from djangotoolbox.fields import ListField, SetField, DictField
 
-class A(object):
+__all__ = ['BaseExtraQuery', 'A']
+
+class BaseExtraQuery(object):
+    
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError("")
+        
+    def as_q(self, model, field):
+        raise NotImplementedError("")
+        
+class A(BaseExtraQuery):
+
     def __init__(self, op, value):
-        raise NotImplementedError("Sorry, A() queries/updates are broken")
         self.op = op
         self.val = value
 
-    def as_q(self, field):
-        if isinstance(field, (AbstractIterableField, EmbeddedModelField)):
-            return "%s.%s" % (field.attname, self.op), self.val
-        else:
-            raise TypeError("Can not use A() queries on %s" % field.__class__.__name__)
+    def as_q(self, model, field):
+        if isinstance(field, (DictField, ListField, SetField)):
+            return "%s.%s" % (field.name, self.op), self.val
