@@ -1,6 +1,16 @@
 from djangotoolbox.fields import AbstractIterableField, EmbeddedModelField
 
-class A(object):
+__all__ = ['BaseExtraQuery', 'A']
+
+class BaseExtraQuery(object):
+    
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError("")
+        
+    def as_q(self, field):
+        raise NotImplementedError("")
+        
+class A(BaseExtraQuery):
     def __init__(self, op, value):
         self.op = op
         self.val = value
