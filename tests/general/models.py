@@ -3,25 +3,14 @@ from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 from djangotoolbox.fields import ListField, DictField, SetField, RawField
 
-ON_SQLITE = settings.DATABASES['default']['ENGINE'] == 'sqlite3'
-
 class Blog(models.Model):
     title = models.CharField(max_length=200, db_index=True)
 
+    def __unicode__(self):
+        return "Blog: %s" % self.title
+
 class Simple(models.Model):
     a = models.IntegerField()
-
-class IndexTestModel(models.Model):
-    regular_index = models.IntegerField(db_index=True)
-    custom_column = models.IntegerField(db_column='foo', db_index=True)
-    descending_index = models.IntegerField()
-    descending_index_custom_column = models.IntegerField(db_column='bar')
-    foreignkey_index = models.ForeignKey(Simple, db_index=True)
-    foreignkey_custom_column = models.ForeignKey('Entry', db_column='spam')
-
-    class MongoMeta:
-        descending_indexes = ['descending_index', 'descending_index_custom_column']
-        index_together = ['regular_index', 'custom_column']
 
 class Entry(models.Model):
     title = models.CharField(max_length=200, db_index=True, unique=True)
@@ -32,6 +21,9 @@ class Entry(models.Model):
     class MongoMeta:
         descending_indexes = ['title']
 
+    def __unicode__(self):
+        return "Entry: %s" % (self.title)
+
 class Person(models.Model):
     name = models.CharField(max_length=20)
     surname = models.CharField(max_length=20)
@@ -40,18 +32,30 @@ class Person(models.Model):
     class Meta:
         unique_together = ("name", "surname")
 
+    def __unicode__(self):
+        return u"Person: %s %s" % (self.name, self.surname)
+
+class StandardAutoFieldModel(models.Model):
+    title = models.CharField(max_length=200)
+
+    def __unicode__(self):
+        return "Standard model: %s" % (self.title)
+
 class DateModel(models.Model):
     datetime = models.DateTimeField(auto_now_add=True)
     time = models.TimeField(null=True)
     date = models.DateField(null=True)
-    if not ON_SQLITE:
+    if not settings.USE_SQLITE:
         _datelist_default = []
         datelist = ListField(models.DateField(), default=_datelist_default)
 
 class DynamicModel(models.Model):
     gen = RawField()
 
-if not ON_SQLITE:
+    def __unicode__(self):
+        return "Test special field model: %s" % (self.gen)
+
+if not settings.USE_SQLITE:
     class TestFieldModel(models.Model):
         title = models.CharField(max_length=200)
         mlist = ListField()
@@ -64,7 +68,11 @@ if not ON_SQLITE:
         mset_default = SetField(default=set(["a", 'b']))
 
         class MongoMeta:
-            index_together = [{'fields' : [ ('title', -1), 'mlist']}]
+            index_together = [{
+                                'fields' : [ ('title', False), 'mlist']
+                                }]
+        def __unicode__(self):
+            return "Test special field model: %s" % (self.title)
 
 else:
     class TestFieldModel(models.Model):

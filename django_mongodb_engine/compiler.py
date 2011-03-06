@@ -1,5 +1,5 @@
-import re
 import sys
+import re
 import datetime
 
 from functools import wraps
@@ -7,22 +7,26 @@ from functools import wraps
 from django.db.utils import DatabaseError
 from django.db.models.fields import NOT_PROVIDED
 from django.db.models import F
+
 from django.db.models.sql import aggregates as sqlaggregates
 from django.db.models.sql.constants import MULTI, SINGLE
 from django.db.models.sql.where import AND, OR
 from django.utils.tree import Node
 
-from pymongo.errors import PyMongoError
-from pymongo import ASCENDING, DESCENDING
-from pymongo.objectid import ObjectId, InvalidId
+import pymongo
+from pymongo.objectid import ObjectId
 
 from djangotoolbox.db.basecompiler import NonrelQuery, NonrelCompiler, \
     NonrelInsertCompiler, NonrelUpdateCompiler, NonrelDeleteCompiler
 
 from .query import A
-from .aggregations import get_aggregation_class_by_name
-from .contrib import RawQuery
-from .utils import safe_regex, first
+from .contrib import RawQuery, RawSpec
+
+def safe_regex(regex, *re_args, **re_kwargs):
+    def wrapper(value):
+        return re.compile(regex % re.escape(value), *re_args, **re_kwargs)
+    wrapper.__name__ = 'safe_regex (%r)' % regex
+    return wrapper
 
 OPERATORS_MAP = {
     'exact':        lambda val: val,
@@ -40,6 +44,7 @@ OPERATORS_MAP = {
     'lt':       lambda val: {'$lt': val},
     'lte':      lambda val: {'$lte': val},
     'range':    lambda val: {'$gte': val[0], '$lte': val[1]},
+#    'year':     lambda val: {'$gte': val[0], '$lt': val[1]},
     'isnull':   lambda val: None if val else {'$ne': None},
     'in':       lambda val: {'$in': val},
 }
@@ -54,27 +59,40 @@ NEGATED_OPERATORS_MAP = {
     'in':       lambda val: val
 }
 
+
+def first(test_func, iterable):
+    for item in iterable:
+        if test_func(item):
+            return item
+
 def safe_call(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except PyMongoError, e:
+        except pymongo.errors.PyMongoError, e:
             raise DatabaseError, DatabaseError(str(e)), sys.exc_info()[2]
     return wrapper
 
-class MongoQuery(NonrelQuery):
-    def __init__(self, compiler, fields):
-        super(MongoQuery, self).__init__(compiler, fields)
-        db_table = self.query.get_meta().db_table
-        self.collection = self.connection.get_collection(db_table)
-        self._ordering = []
-        self._mongo_query = compiler.query.raw_query \
-                            if isinstance(compiler.query, RawQuery) \
-                            else {}
 
+class DBQuery(NonrelQuery):
+    # ----------------------------------------------
+    # Public API
+    # ----------------------------------------------
+    def __init__(self, compiler, fields):
+        super(DBQuery, self).__init__(compiler, fields)
+        db_table = self.query.get_meta().db_table
+        self._collection = self.connection.db_connection[db_table]
+        self._ordering = []
+        self.db_query = {}
+
+    # This is needed for debugging
     def __repr__(self):
-        return '<MongoQuery: %r ORDER %r>' % (self._mongo_query, self._ordering)
+        return '<DBQuery: %r ORDER %r>' % (self.db_query, self._ordering)
+
+    @property
+    def collection(self):
+        return self._collection
 
     def fetch(self, low_mark, high_mark):
         results = self._get_results()
@@ -91,39 +109,30 @@ class MongoQuery(NonrelQuery):
         return results.count()
 
     @safe_call
+    def delete(self):
+        self._collection.remove(self.db_query)
+
+    @safe_call
     def order_by(self, ordering):
         for order in ordering:
             if order.startswith('-'):
-                order, direction = order[1:], DESCENDING
+                order, direction = order[1:], pymongo.DESCENDING
             else:
-                direction = ASCENDING
+                direction = pymongo.ASCENDING
             if order == self.query.get_meta().pk.column:
                 order = '_id'
             self._ordering.append((order, direction))
         return self
 
-    @safe_call
-    def delete(self):
-        self.collection.remove(self._mongo_query)
-
-    def _get_results(self):
-        fields = None
-        if self.query.select_fields and not self.query.aggregates:
-            fields = dict((field.column, 1) for field in self.query.select_fields)
-        results = self.collection.find(self._mongo_query, fields=fields)
-        if self._ordering:
-            results.sort(self._ordering)
-        if self.query.low_mark > 0:
-            results.skip(self.query.low_mark)
-        if self.query.high_mark is not None:
-            results.limit(self.query.high_mark - self.query.low_mark)
-        return results
-
     def add_filters(self, filters, query=None):
         children = self._get_children(filters.children)
 
         if query is None:
-            query = self._mongo_query
+            query = self.db_query
+
+            if len(children) == 1 and isinstance(children[0], RawQuery):
+                self.db_query = children[0].query
+                return
 
         if filters.connector is OR:
             or_conditions = query['$or'] = []
@@ -136,6 +145,9 @@ class MongoQuery(NonrelQuery):
                 subquery = {}
             else:
                 subquery = query
+
+            if isinstance(child, RawQuery):
+                raise TypeError("Can not combine raw queries with regular filters")
 
             if isinstance(child, Node):
                 if filters.connector is OR and child.connector is OR:
@@ -152,8 +164,6 @@ class MongoQuery(NonrelQuery):
                     or_conditions.append(subquery)
             else:
                 column, lookup_type, db_type, value = self._decode_child(child)
-                if lookup_type in ('year', 'month', 'day'):
-                    raise DatabaseError("MongoDB does not support year/month/day queries")
                 if column == self.query.get_meta().pk.column:
                     column = '_id'
 
@@ -166,7 +176,7 @@ class MongoQuery(NonrelQuery):
                     )
 
                 if isinstance(value, A):
-                    field = first(lambda field: field.column == column, self.fields)
+                    field = first(lambda field: field.attname == column, self.fields)
                     column, value = value.as_q(field)
 
                 if self._negated:
@@ -177,11 +187,7 @@ class MongoQuery(NonrelQuery):
                             return {'$not' : OPERATORS_MAP[lookup_type](value)}
                 else:
                     op_func = OPERATORS_MAP[lookup_type]
-
-                if lookup_type == 'isnull':
-                    value = op_func(value)
-                else:
-                    value = op_func(self.convert_value_for_db(db_type, value))
+                value = op_func(self.convert_value_for_db(db_type, value))
 
                 if existing is not None:
                     key = '$all' if not self._negated else '$nin'
@@ -204,15 +210,25 @@ class MongoQuery(NonrelQuery):
         if filters.negated:
             self._negated = not self._negated
 
+    def _get_results(self):
+        if self.query.select_fields:
+            fields = dict((field.attname, 1) for field in self.query.select_fields)
+        else:
+            fields = None
+        results = self._collection.find(self.db_query, fields=fields)
+        if self._ordering:
+            results.sort(self._ordering)
+        if self.query.low_mark > 0:
+            results.skip(self.query.low_mark)
+        if self.query.high_mark is not None:
+            results.limit(self.query.high_mark - self.query.low_mark)
+        return results
+
 class SQLCompiler(NonrelCompiler):
     """
     A simple query: no joins, no distinct, etc.
     """
-    query_class = MongoQuery
-
-    @property
-    def collection(self):
-        return self.connection.get_collection(self.query.get_meta().db_table)
+    query_class = DBQuery
 
     def _split_db_type(self, db_type):
         try:
@@ -221,7 +237,6 @@ class SQLCompiler(NonrelCompiler):
             db_subtype = None
         return db_type, db_subtype
 
-    @safe_call # see #7
     def convert_value_for_db(self, db_type, value):
         if db_type is None or value is None:
             return value
@@ -241,26 +256,12 @@ class SQLCompiler(NonrelCompiler):
             return [self.convert_value_for_db(db_type, val) for val in value]
 
         if db_type == 'objectid':
-            try:
-                return ObjectId(value)
-            except InvalidId:
-                # Provide a better message for invalid IDs
-                assert isinstance(value, unicode)
-                if len(value) > 13:
-                    value = value[:10] + '...'
-                msg = "AutoField (default primary key) values must be strings " \
-                      "representing an ObjectId on MongoDB (got %r instead)" % value
-                if self.query.model._meta.db_table == 'django_site':
-                    # Also provide some useful tips for (very common) issues
-                    # with settings.SITE_ID.
-                    msg += ". Please make sure your SITE_ID contains a valid ObjectId string."
-                raise InvalidId(msg)
+            return ObjectId(value)
 
         # Pass values of any type not covered above as they are.
         # PyMongo will complain if they can't be encoded.
         return value
 
-    @safe_call # see #7
     def convert_value_from_db(self, db_type, value):
         if db_type is None:
             return value
@@ -299,8 +300,14 @@ class SQLCompiler(NonrelCompiler):
             params['w'] = conn.wait_for_slaves
         return params
 
+    @property
+    def _collection(self):
+        connection = self.connection.db_connection
+        db_table = self.query.get_meta().db_table
+        return connection[db_table]
+
     def _save(self, data, return_id=False):
-        primary_key = self.collection.save(data, **self.insert_params())
+        primary_key = self._collection.save(data, **self.insert_params())
         if return_id:
             return unicode(primary_key)
 
@@ -311,46 +318,50 @@ class SQLCompiler(NonrelCompiler):
         aggregations = self.query.aggregate_select.items()
 
         if len(aggregations) == 1 and isinstance(aggregations[0][1], sqlaggregates.Count):
-            # Ne need for full-featured aggregation processing if we only want to count()
-            if result_type is MULTI:
-                return [[self.get_count()]]
-            else:
-                return [self.get_count()]
+            # Ne need for full-featured aggregation processing if we only
+            # want to count() -- let djangotoolbox's simple Count aggregation
+            # implementation handle this case.
+            return super(SQLCompiler, self).execute_sql(result_type)
 
-        counts, reduce, finalize, order, initial = [], [], [], [], {}
+        from .contrib import aggregations as aggregations_module
+        sqlagg, reduce, finalize, order, initial = [], [], [], [], {}
         query = self.build_query()
 
+        # First aggregations implementation
+        # THIS CAN/WILL BE IMPROVED!!!
         for alias, aggregate in aggregations:
-            assert isinstance(aggregate, sqlaggregates.Aggregate)
-            if isinstance(aggregate, sqlaggregates.Count):
-                order.append(None)
-                # Needed to keep the iteration order which is important in the returned value.
-                counts.append(self.get_count())
-                continue
+            if isinstance(aggregate, sqlaggregates.Aggregate):
+                if isinstance(aggregate, sqlaggregates.Count):
+                    order.append(None)
+                    # Needed to keep the iteration order which is important in the returned value.
+                    sqlagg.append(self.get_count())
+                    continue
 
-            aggregate_class = get_aggregation_class_by_name(aggregate.__class__.__name__)
-            lookup = aggregate.col
-            if isinstance(lookup, tuple):
-                # lookup is a (table_name, column_name) tuple.
-                # Get rid of the table name as aggregations can't span
-                # multiple tables anyway
-                if lookup[0] != query.collection.name:
-                    raise DatabaseError("Aggregations can not span multiple tables (tried %r and %r)"
-                                        % (lookup[0], query.collection.name))
-                lookup = lookup[1]
-            self.query.aggregates[alias] = aggregate = aggregate_class(alias, lookup, aggregate.source)
-            order.append(alias) # just to keep the right order
-            initial.update(aggregate.initial())
-            reduce.append(aggregate.reduce())
-            finalize.append(aggregate.finalize())
+                aggregate_class = getattr(aggregations_module, aggregate.__class__.__name__)
+                # aggregation availability has been checked in check_aggregate_support in base.py
 
-        reduce = "function(doc, out){ %s }" % "; ".join(reduce)
-        finalize = "function(out){ %s }" % "; ".join(finalize)
-        cursor = query.collection.group(None, query._mongo_query, initial, reduce, finalize)
+                field = aggregate.source.name if aggregate.source else '_id'
+                if alias is None:
+                    alias = '_id__%s' % cls_name
+                aggregate = aggregate_class(field, **aggregate.extra)
+                aggregate.add_to_query(self.query, alias, aggregate.col, aggregate.source,
+                                       aggregate.extra.get("is_summary", False))
+
+            order.append(aggregate.alias) # just to keep the right order
+            initial_, reduce_, finalize_ = aggregate.as_query(query)
+            initial.update(initial_)
+            reduce.append(reduce_)
+            finalize.append(finalize_)
+
+        cursor = query.collection.group(None,
+                            query.db_query,
+                            initial,
+                            reduce="function(doc, out){ %s }" % "; ".join(reduce),
+                            finalize="function(out){ %s }" % "; ".join(finalize))
 
         ret = []
         for alias in order:
-            result = cursor[0][alias] if alias else counts.pop(0)
+            result = cursor[0][alias] if alias else sqlagg.pop(0)
             if result_type is MULTI:
                 result = [result]
             ret.append(result)
@@ -369,20 +380,22 @@ class SQLInsertCompiler(NonrelInsertCompiler, SQLCompiler):
 # TODO: Define a common nonrel API for updates and add it to the nonrel
 # backend base classes and port this code to that API
 class SQLUpdateCompiler(NonrelUpdateCompiler, SQLCompiler):
-    query_class = MongoQuery
+    query_class = DBQuery
 
     @safe_call
-    def execute_raw(self, update_spec, multi=True):
-        criteria = self.build_query()._mongo_query
-        return self.collection.update(criteria, update_spec, multi=multi)
-
     def execute_sql(self, return_id=False):
-        return self.execute_raw(*self._get_update_spec())
+        values = self.query.values
+        if len(values) == 1 and isinstance(values[0][2], RawSpec):
+            spec, kwargs = values[0][2].spec, values[0][2].kwargs
+            kwargs['multi'] = True
+        else:
+            spec, kwargs = self._get_update_spec()
+        return self._collection.update(self.build_query().db_query, spec, **kwargs)
 
     def _get_update_spec(self):
         multi = True
         spec = {}
-        for field, _, value in self.query.values:
+        for field, o, value in self.query.values:
             if field.unique:
                 multi = False
             if hasattr(value, 'prepare_database_save'):
@@ -390,7 +403,7 @@ class SQLUpdateCompiler(NonrelUpdateCompiler, SQLCompiler):
             else:
                 value = field.get_db_prep_save(value, connection=self.connection)
 
-            value = self.convert_value_for_db(field.db_type(connection=self.connection), value)
+            value = self.convert_value_for_db(field.db_type(), value)
             if hasattr(value, "evaluate"):
                 assert value.connector in (value.ADD, value.SUB)
                 assert not value.negated
@@ -403,14 +416,11 @@ class SQLUpdateCompiler(NonrelUpdateCompiler, SQLCompiler):
                 else:
                     assert value.connector == value.ADD
                     rhs, lhs = lhs, rhs
-                action, column, value = '$inc', lhs.name, rhs
+                spec.setdefault("$inc", {})[lhs.name] = rhs
             else:
-                action, column, value = '$set', field.column, value
-            if column == self.query.get_meta().pk.column:
-                raise DatabaseError("Can not modify _id")
-            spec.setdefault(action, {})[column] = value
+                spec.setdefault("$set", {})[field.column] = value
 
-        return spec, multi
+        return spec, {'multi' : multi}
 
 class SQLDeleteCompiler(NonrelDeleteCompiler, SQLCompiler):
     pass

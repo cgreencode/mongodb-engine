@@ -1,16 +1,48 @@
 # -*- coding: utf-8 -*-
 import os
+import shutil
+import sys
 import tempfile
+import time
 from datetime import datetime, timedelta
-from django.core.files.base import ContentFile, File
-from django_mongodb_engine.storage import GridFsStorage
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
 
-from .utils import TestCase
+try:
+    import threading
+except ImportError:
+    import dummy_threading as threading
+
+from django.conf import settings
+from django.core.exceptions import SuspiciousOperation, ImproperlyConfigured
+from django.core.files.base import ContentFile, File
+from django.core.files.images import get_image_dimensions
+from django.core.files.storage import get_storage_class
+from django.core.files.uploadedfile import UploadedFile
+from django.utils import unittest
+
+# Try to import PIL in either of the two ways it can end up installed.
+# Checking for the existence of Image is enough for CPython, but
+# for PyPy, you need to check for the underlying modules
+try:
+    from PIL import Image, _imaging
+except ImportError:
+    try:
+        import Image, _imaging
+    except ImportError:
+        Image = None
+        
+from django.core.files.base import File
+
 import models
+
+from django_mongodb_engine.storage import GridFsStorage
 
 FILES_PATH = os.path.join(os.path.dirname(models.__file__), 'to_import')
 
-class GridFsStorageTest(TestCase):
+class GridFsStorageTest(unittest.TestCase):
     storage_class = GridFsStorage
 
     def setUp(self):
@@ -39,11 +71,11 @@ class GridFsStorageTest(TestCase):
     #     a file.
     #     """
     #     self.assertFalse(self.storage.exists('test.file'))
-    #
+    # 
     #     f = ContentFile('custom contents')
     #     f_name = self.storage.save('test.file', f)
     #     atime = self.storage.accessed_time(f_name)
-    #
+    # 
     #     self.assertEqual(atime, datetime.fromtimestamp(
     #         os.path.getatime(self.storage.path(f_name))))
     #     self.assertTrue(datetime.now() - self.storage.accessed_time(f_name) < timedelta(seconds=2))
@@ -69,13 +101,13 @@ class GridFsStorageTest(TestCase):
     #     a file.
     #     """
     #     self.assertFalse(self.storage.exists('test.file'))
-    #
+    # 
     #     f = ContentFile('custom contents')
     #     f_name = self.storage.save('test.file', f)
     #     mtime = self.storage.modified_time(f_name)
-    #
+    # 
     #     self.assertTrue(datetime.now() - self.storage.modified_time(f_name) < timedelta(seconds=2))
-    #
+    # 
     #     self.storage.delete(f_name)
 
     def test_file_save_without_name(self):
@@ -114,7 +146,7 @@ class GridFsStorageTest(TestCase):
     #     """
     #     self.assertEqual(self.storage.url('test.file'),
     #         '%s%s' % (self.storage.base_url, 'test.file'))
-    #
+    # 
     #     self.storage.base_url = None
     #     self.assertRaises(ValueError, self.storage.url, 'test.file')
 

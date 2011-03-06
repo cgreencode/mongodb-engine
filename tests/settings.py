@@ -1,5 +1,8 @@
+# Run the test for 'myapp' with this setting on and off
+MONGODB_AUTOMATIC_REFERENCING = True
+
 DATABASES = {
-    'default' : {
+    'default': {
         'ENGINE': 'django_mongodb_engine',
         'NAME': 'test',
         'USER': '',
@@ -10,23 +13,11 @@ DATABASES = {
     },
 }
 
-INSTALLED_APPS = ['djangotoolbox', 'general', 'embedded', 'or_lookups',
-                  'aggregations', 'contrib', 'storage']
+INSTALLED_APPS = 'aggregations contrib embedded general or_lookups storage'.split()
 
-LOGGING = {
-    'version' : 1,
-    'formatters' : {'simple' : {'format': '%(levelname)s %(message)s'}},
-    'handlers' : {
-        'console' : {
-            'level' : 'DEBUG',
-            'class' : 'logging.StreamHandler',
-            'formatter' : 'simple'
-        }
-    },
-    'loggers' : {
-        'django.db.backends' : {
-            'level' : 'DEBUG',
-            'handlers' : ['console']
-        }
-    }
-}
+# shortcut to check whether tests would pass using an SQL backend
+USE_SQLITE = False
+
+if USE_SQLITE:
+    DATABASES = {'default' : {'ENGINE' : 'sqlite3'}}
+    INSTALLED_APPS.remove('embedded')
