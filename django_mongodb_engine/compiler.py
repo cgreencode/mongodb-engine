@@ -403,7 +403,6 @@ class SQLCompiler(NonrelCompiler):
             ret.append(result)
         return ret
 
-
 class SQLInsertCompiler(NonrelInsertCompiler, SQLCompiler):
     @safe_call
     def insert(self, data, return_id=False):
@@ -413,21 +412,39 @@ class SQLInsertCompiler(NonrelInsertCompiler, SQLCompiler):
             pass
         return self._save(data, return_id)
 
-
 # TODO: Define a common nonrel API for updates and add it to the nonrel
 # backend base classes and port this code to that API
 class SQLUpdateCompiler(NonrelUpdateCompiler, SQLCompiler):
     query_class = MongoQuery
 
-    def update(self, values):
+    @safe_call
+    def execute_raw(self, update_spec, multi=True, **kwargs):
+        collection = self.get_collection()
+        criteria = self.build_query()._mongo_query
+        options = self.connection.operation_flags.get('update', {})
+        options = dict(options, **kwargs)
+        info = collection.update(criteria, update_spec, multi=multi, **options)
+        if info is not None:
+            return info.get('n')
+
+    def execute_sql(self, result_type):
+        return self.execute_raw(*self._get_update_spec())
+
+    def _get_update_spec(self):
         multi = True
         spec = {}
-        for field, value in values:
+        for field, _, value in self.query.values:
             if getattr(field, 'forbids_updates', False):
                 raise DatabaseError("Updates on %ss are not allowed" %
                                     field.__class__.__name__)
             if field.unique:
                 multi = False
+            if hasattr(value, 'prepare_database_save'):
+                value = value.prepare_database_save(field)
+            else:
+                value = field.get_db_prep_save(value, connection=self.connection)
+
+            value = self.convert_value_for_db(field.db_type(connection=self.connection), value)
             if hasattr(value, "evaluate"):
                 assert value.connector in (value.ADD, value.SUB)
                 assert not value.negated
@@ -448,18 +465,7 @@ class SQLUpdateCompiler(NonrelUpdateCompiler, SQLCompiler):
                 raise DatabaseError("Can not modify _id")
             spec.setdefault(action, {})[column] = value
 
-        return self.execute_update(spec, multi)
-
-    @safe_call
-    def execute_update(self, update_spec, multi=True, **kwargs):
-        collection = self.get_collection()
-        criteria = self.build_query()._mongo_query
-        options = self.connection.operation_flags.get('update', {})
-        options = dict(options, **kwargs)
-        info = collection.update(criteria, update_spec, multi=multi, **options)
-        if info is not None:
-            return info.get('n')
-
+        return spec, multi
 
 class SQLDeleteCompiler(NonrelDeleteCompiler, SQLCompiler):
     pass

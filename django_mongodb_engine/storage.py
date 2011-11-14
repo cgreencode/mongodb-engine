@@ -1,12 +1,9 @@
 import os
-import urlparse
 
 from gridfs import GridFS, NoFile
 
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.storage import Storage
-from django.utils.encoding import filepath_to_uri
-
 
 def _get_subcollections(collection):
     """
@@ -17,7 +14,6 @@ def _get_subcollections(collection):
         cleaned = name[:name.rfind('.')]
         if cleaned != collection.name and cleaned.startswith(collection.name):
             yield cleaned
-
 
 class GridFSStorage(Storage):
     """
@@ -43,23 +39,14 @@ class GridFSStorage(Storage):
     :param database:
         Alias of the Django database to use. Defaults to 'default' (the default
         Django database).
-    :param base_url:
-        URL that serves the files in GridFS (for instance, through nginx-gridfs).
-        Defaults to None (file not accessible through a URL).
     """
 
-    def __init__(self, location='', collection='storage', database='default',
-                 base_url=None):
+    def __init__(self, location='', collection='storage', database='default'):
         self.location = location.strip(os.sep)
         self.collection = collection
         self.database = database
-        self.base_url = base_url
-
         if not self.collection:
             raise ImproperlyConfigured("'collection' may not be empty")
-
-        if self.base_url and not self.base_url.endswith('/'):
-            raise ImproperlyConfigured("If set, 'base_url' must end with a slash")
 
     def _open(self, path, mode='rb'):
         """
@@ -116,11 +103,6 @@ class GridFSStorage(Storage):
         """
         gridfs, filename = self._get_gridfs(path)
         return gridfs.get_last_version(filename=filename).length
-
-    def url(self, name):
-        if self.base_url is None:
-            raise ValueError("This file is not accessible via a URL.")
-        return urlparse.urljoin(self.base_url, filepath_to_uri(name))
 
     def created_time(self, path):
         """
