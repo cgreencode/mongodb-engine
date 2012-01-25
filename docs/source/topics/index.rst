@@ -12,3 +12,4 @@ Topics
    cache
    aggregations
    lowerlevel
+   setup
