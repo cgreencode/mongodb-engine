@@ -6,8 +6,9 @@ from django.db.utils import DatabaseError
 
 from pymongo.objectid import ObjectId
 
-from .models import *
-from .utils import *
+from query.models import *
+from query.utils import *
+
 
 class BasicQueryTests(TestCase):
     """ Backend-agnostic query tests """
@@ -232,13 +233,6 @@ class BasicQueryTests(TestCase):
         self.assertEqualLists(
             Blog.objects.filter(title='a').filter(title='b').filter(title='a'),
             []
-        )
-
-        # Tests chaining on primary keys
-        blog_id = Blog.objects.get().id
-        self.assertEqual(
-            Blog.objects.filter(pk = blog_id).filter(pk = blog_id).get(),
-            Blog.objects.get()
         )
 
     def test_negated_Q(self):

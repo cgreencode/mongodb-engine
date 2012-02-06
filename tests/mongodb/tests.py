@@ -1,7 +1,10 @@
+from __future__ import with_statement
+
 from cStringIO import StringIO
 from django.core.management import call_command
 from django.db import connection, connections
 from django.db.utils import DatabaseError, IntegrityError
+from django.db.models import Q
 from django.contrib.sites.models import Site
 
 from pymongo.objectid import InvalidId
@@ -11,8 +14,9 @@ from gridfs import GridFS, GridOut
 from django_mongodb_engine.base import DatabaseWrapper
 from django_mongodb_engine.serializer import LazyModelInstance
 
-from .models import *
-from .utils import *
+from mongodb.models import *
+from mongodb.utils import *
+
 
 class MongoDBEngineTests(TestCase):
     """ Tests for mongodb-engine specific features """
@@ -143,10 +147,10 @@ class RegressionTests(TestCase):
             get_collection(CustomIDModel2).find_one()
         )
         obj = CustomIDModel2.objects.create(id=41)
-        self.assertEqualLists(
-            CustomIDModel2.objects.order_by('id').values('id'),
-            [{'id': 42}, {'id': 41}]
-        )
+        self.assertEqualLists(CustomIDModel2.objects.order_by('id').values('id'),
+                              [{'id': 41}, {'id': 42}])
+        self.assertEqualLists(CustomIDModel2.objects.order_by('-id').values('id'),
+                              [{'id': 42}, {'id': 41}])
         self.assertEqual(obj, CustomIDModel2.objects.get(id=41))
 
     def test_multiple_exclude(self):
@@ -169,6 +173,11 @@ class RegressionTests(TestCase):
             for i in xrange(randint(0, 20)):
                 q = getattr(q, 'filter' if randint(0, 1) else 'exclude')(raw=i)
             list(q)
+
+    def test_issue_89(self):
+        query = [Q(raw='a') | Q(raw='b'),
+                 Q(raw='c') | Q(raw='d')]
+        self.assertRaises(AssertionError, RawModel.objects.get, *query)
 
 class DatabaseOptionTests(TestCase):
     """ Tests for MongoDB-specific database options """
