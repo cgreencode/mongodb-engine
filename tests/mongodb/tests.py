@@ -144,10 +144,10 @@ class RegressionTests(TestCase):
             get_collection(CustomIDModel2).find_one()
         )
         obj = CustomIDModel2.objects.create(id=41)
-        self.assertEqualLists(
-            CustomIDModel2.objects.order_by('id').values('id'),
-            [{'id': 42}, {'id': 41}]
-        )
+        self.assertEqualLists(CustomIDModel2.objects.order_by('id').values('id'),
+                              [{'id': 41}, {'id': 42}])
+        self.assertEqualLists(CustomIDModel2.objects.order_by('-id').values('id'),
+                              [{'id': 42}, {'id': 41}])
         self.assertEqual(obj, CustomIDModel2.objects.get(id=41))
 
     def test_multiple_exclude(self):
@@ -491,3 +491,17 @@ class CappedCollectionTests(TestCase):
         for _ in range(100):
             CappedCollection2.objects.create()
         self.assertEqual(CappedCollection2.objects.count(), 2)
+
+    def test_reverse_natural(self):
+        for n in [1, 2, 3]:
+            CappedCollection.objects.create(n=n)
+
+        self.assertEqualLists(
+            CappedCollection.objects.values_list('n', flat=True),
+            [1, 2, 3]
+        )
+
+        self.assertEqualLists(
+            CappedCollection.objects.reverse().values_list('n', flat=True),
+            [3, 2, 1]
+        )
