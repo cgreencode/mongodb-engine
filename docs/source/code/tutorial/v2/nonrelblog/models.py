@@ -1,7 +1,5 @@
 from django.db import models
-
 from djangotoolbox.fields import ListField, EmbeddedModelField
-
 
 class Post(models.Model):
     created_on = models.DateTimeField(auto_now_add=True, null=True)
@@ -10,12 +8,10 @@ class Post(models.Model):
     tags = ListField()
     comments = ListField(EmbeddedModelField('Comment')) # <---
 
-
 class Comment(models.Model):
     created_on = models.DateTimeField(auto_now_add=True)
     author = EmbeddedModelField('Author')
     text = models.TextField()
-
 
 class Author(models.Model):
     name = models.CharField()
