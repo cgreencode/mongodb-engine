@@ -13,7 +13,8 @@ Past Primary Authors
 
 Contributions by
 ----------------
-* Ellie Frost (https://github.com/stillinbeta) -- Index creation revamping (Sub-object indices)
+* Ellie Frost (https://github.com/stillinbeta)
+* Simon Charette (https://github.com/charettes)
 * Dag Stockstad (https://github.com/dstockstad) -- found tons of bugs in our query generator
 * Shane R. Spencer (https://github.com/whardier) -- Website Review
 * Sabin Iacob (https://github.com/m0n5t3r)

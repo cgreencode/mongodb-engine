@@ -99,14 +99,11 @@ class MongoQuery(NonrelQuery):
 
     @safe_call
     def order_by(self, ordering):
-        for order in ordering:
-            if order.startswith('-'):
-                order, direction = order[1:], DESCENDING
-            else:
-                direction = ASCENDING
-            if order == get_pk_column(self):
-                order = '_id'
-            self._ordering.append((order, direction))
+        for column, descending in ordering:
+            direction = DESCENDING if descending else ASCENDING
+            if column == get_pk_column(self):
+                column = '_id'
+            self._ordering.append((column, direction))
         return self
 
     @safe_call
@@ -239,12 +236,9 @@ class MongoQuery(NonrelQuery):
                             else:
                                 existing.update(lookup)
                         else:
-                            if '$in' in lookup and '$in' in existing:
-                                existing['$in'] = list(set(lookup['$in'] + existing['$in']))
-                            else:
-                                # {'$gt': o1} + {'$lt': o2} --> {'$gt': o1, '$lt': o2}
-                                assert all(key not in existing for key in lookup.keys()), [lookup, existing]
-                                existing.update(lookup)
+                            # {'$gt': o1} + {'$lt': o2} --> {'$gt': o1, '$lt': o2}
+                            assert all(key not in existing for key in lookup.keys()), [lookup, existing]
+                            existing.update(lookup)
                     else:
                         key = '$nin' if self._negated else '$all'
                         existing.setdefault(key, []).append(lookup)
