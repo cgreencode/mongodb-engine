@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db.utils import DatabaseError
 
 from pymongo import DESCENDING
 
@@ -152,15 +153,30 @@ class DatabaseCreation(NonrelDatabaseCreation):
 
     def sql_create_model(self, model, *unused):
         """
-        Creates the collection for model. Mostly used for capped
-        collections.
+        Creates a collection that will store instances of the model.
+
+        Technically we only need to precreate capped collections, but
+        we'll create them for all models, so database introspection
+        knows about empty "tables".
         """
-        kwargs = {}
-        for option in ('capped', 'collection_max', 'collection_size'):
-            x = getattr(model._meta, option, None)
-            if x:
-                kwargs[option] = x
-        self.connection.get_collection(model._meta.db_table, **kwargs)
+        name = model._meta.db_table
+        if getattr(model._meta, 'capped', False):
+            kwargs = {
+                'capped': True,
+                'size': getattr(model._meta, 'collection_size', 10000000000),
+                'max': getattr(model._meta, 'collection_max', None)}
+        else:
+            kwargs = {}
+
+        collection = self.connection.get_collection(name, existing=True)
+        if collection is not None:
+            opts = dict(collection.options())
+            if opts != kwargs:
+                raise DatabaseError("Can't change options of an existing "
+                                    "collection: %s --> %s." % (opts, kwargs))
+
+        self.connection.get_collection(name, **kwargs)
+
         return [], {}
 
     def set_autocommit(self):
