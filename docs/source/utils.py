@@ -1,10 +1,8 @@
 from datetime import datetime
-from subprocess import CalledProcessError, check_output
-
+from subprocess import check_output, CalledProcessError
 
 def get_current_year():
     return datetime.utcnow().year
-
 
 def get_git_head():
     try:

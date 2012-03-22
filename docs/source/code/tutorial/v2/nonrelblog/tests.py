@@ -18,4 +18,5 @@ __test__ = {
 [<Comment: Comment object>]
 >>> post.comments[0].author.email
 u'bob@example.org'
-"""}
+"""
+}
