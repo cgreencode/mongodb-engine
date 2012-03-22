@@ -1,3 +1,0 @@
-pymongo
-https://github.com/django-nonrel/djangotoolbox/tarball/master
-https://github.com/django-nonrel/django-nonrel/tarball/master
