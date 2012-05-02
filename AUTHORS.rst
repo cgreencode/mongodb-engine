@@ -5,7 +5,6 @@ Current Primary Authors
 -----------------------
 * Jonas Haag <jonas@lophus.org>
 * Flavio Percoco Premoli <flaper87@flaper87.org>
-* Wojtek Ruszczewski <github@wr.waw.pl>
 
 Past Primary Authors
 --------------------
@@ -14,8 +13,7 @@ Past Primary Authors
 
 Contributions by
 ----------------
-* Ellie Frost (https://github.com/stillinbeta)
-* Simon Charette (https://github.com/charettes)
+* Ellie Frost (https://github.com/stillinbeta) -- Index creation revamping (Sub-object indices)
 * Dag Stockstad (https://github.com/dstockstad) -- found tons of bugs in our query generator
 * Shane R. Spencer (https://github.com/whardier) -- Website Review
 * Sabin Iacob (https://github.com/m0n5t3r)
