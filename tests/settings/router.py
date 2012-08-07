@@ -1,9 +1,8 @@
 from settings import *
 
-
 INSTALLED_APPS = ['query', 'router']
 
-DATABASES['default'] = {'ENGINE': 'sqlite3', 'NAME': '/tmp/db.sql'}
+DATABASES['default'] = {'ENGINE' : 'sqlite3', 'NAME' : '/tmp/db.sql'}
 
 DATABASE_ROUTERS = ['django_mongodb_engine.router.MongoDBRouter']
 MONGODB_MANAGED_APPS = ['query']

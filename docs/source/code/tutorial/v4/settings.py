@@ -1,8 +1,8 @@
 DATABASES = {
-    'default': {
+    'default' : {
         'ENGINE': 'django_mongodb_engine',
-        'NAME': 'tutorial',
-    },
+        'NAME': 'tutorial'
+    }
 }
 
 INSTALLED_APPS = [
@@ -11,9 +11,8 @@ INSTALLED_APPS = [
     'django.contrib.admin',
 
     'nonrelblog',
-    'gridfsuploads',
+    'gridfsuploads'
 ]
-
 ROOT_URLCONF = 'urls'
 
 DEBUG = TEMPLATE_DEBUG = True
