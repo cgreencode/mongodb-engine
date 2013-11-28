@@ -2,6 +2,7 @@ from django.db import connections, models
 
 from gridfs import GridFS
 from gridfs.errors import NoFile
+
 # handle pymongo backward compatibility
 try:
     from bson.objectid import ObjectId

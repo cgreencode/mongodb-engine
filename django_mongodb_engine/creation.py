@@ -170,6 +170,7 @@ class DatabaseCreation(NonrelDatabaseCreation):
                 raise DatabaseError("Can't change options of an existing "
                                     "collection: %s --> %s." % (opts, kwargs))
 
+        # Initialize the capped collection:
         self.connection.get_collection(name, **kwargs)
 
         return [], {}
