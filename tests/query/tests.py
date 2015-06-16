@@ -16,11 +16,6 @@ from utils import *
 class BasicQueryTests(TestCase):
     """Backend-agnostic query tests."""
 
-    def tearDown(self):
-        Blog.objects.all().delete()
-        Post.objects.all().delete()
-        IntegerModel.objects.all().delete()
-
     def test_add_and_delete_blog(self):
         Blog.objects.create(title='blog1')
         self.assertEqual(Blog.objects.count(), 1)
@@ -435,9 +430,6 @@ class OrLookupsTests(TestCase):
     """Stolen from the Django test suite, shaked down for m2m tests."""
 
     def setUp(self):
-
-        Article.objects.all().delete()
-
         self.a1 = Article.objects.create(
             headline='Hello', pub_date=datetime.datetime(2005, 11, 27)).pk
         self.a2 = Article.objects.create(
@@ -445,9 +437,6 @@ class OrLookupsTests(TestCase):
         self.a3 = Article.objects.create(
             headline='Hello and goodbye',
             pub_date=datetime.datetime(2005, 11, 29)).pk
-
-    def tearDown(self):
-        Article.objects.all().delete()
 
     def test_filter_or(self):
         self.assertQuerysetEqual(
@@ -583,7 +572,6 @@ class OrLookupsTests(TestCase):
             [])
 
     def test_q_exclude(self):
-
         self.assertQuerysetEqual(
             Article.objects.exclude(Q(headline__startswith='Hello')),
             ['Goodbye'],

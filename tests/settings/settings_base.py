@@ -2,7 +2,7 @@ DATABASES = {
     'default': {
         'ENGINE': 'django_mongodb_engine',
         'NAME': 'test',
-        'OPTIONS': {'OPERATIONS':{}},
+        'OPTIONS': {'OPERATIONS': {'safe': True}},
     },
     'other': {
         'ENGINE': 'django_mongodb_engine',

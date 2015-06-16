@@ -248,19 +248,20 @@ class DatabaseOptionTests(TestCase):
                 self.assertEqual(method_kwargs[name],
                                  Collection._method_kwargs[name])
 
-
-            self.assertEqual(*update_count)
+            if Collection._method_kwargs['update'].get('safe'):
+                self.assertEqual(*update_count)
 
         test_setup({}, save={}, update={'multi': True}, remove={})
-        test_setup({},
-            save={},
-            update={'multi': True},
-            remove={})
         test_setup({
-            'delete': {}, 'update': {}},
+            'safe': True},
+            save={'safe': True},
+            update={'safe': True, 'multi': True},
+            remove={'safe': True})
+        test_setup({
+            'delete': {'safe': True}, 'update': {}},
             save={},
             update={'multi': True},
-            remove={})
+            remove={'safe': True})
         test_setup({
             'insert': {'fsync': True}, 'delete': {'fsync': True}},
             save={},
