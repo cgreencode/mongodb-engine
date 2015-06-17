@@ -4,6 +4,7 @@ from django.db.models import Model
 from django.test import TestCase
 from django.utils.unittest import skip
 
+
 class TestCase(TestCase):
 
     def setUp(self):

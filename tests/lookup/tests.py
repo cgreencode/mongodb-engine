@@ -18,12 +18,11 @@ from models import Author, Article, Tag
 class LookupTests(TestCase):
 
     def setUp(self):
-
+        # Create a few Authors.
         Author.objects.all().delete()
         Article.objects.all().delete()
         Tag.objects.all().delete()
 
-        # Create a few Authors.
         self.au1 = Author(name='Author 1')
         self.au1.save()
         self.au2 = Author(name='Author 2')
