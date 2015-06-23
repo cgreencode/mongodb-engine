@@ -3,16 +3,16 @@ from cStringIO import StringIO
 
 from django.core.management import call_command
 from django.contrib.sites.models import Site
-from django.db import connection, connections
+from django.db import connection
 from django.db.utils import DatabaseError, IntegrityError
 from django.db.models import Q
-
+from encodings.big5 import codec
 from gridfs import GridOut
 from pymongo import ASCENDING, DESCENDING
-
 from django_mongodb_engine.base import DatabaseWrapper
-
 from models import *
+
+
 from utils import *
 
 
@@ -57,18 +57,17 @@ class MongoDBEngineTests(TestCase):
     def test_databasewrapper_api(self):
         from pymongo.mongo_client import MongoClient
         from pymongo.database import Database
-        from pymongo.collection import Collection
         from random import shuffle
+        from pymongo.collection import Collection
 
         if settings.DEBUG:
-            from django_mongodb_engine.utils import \
-                CollectionDebugWrapper as Collection
+            from django_mongodb_engine.utils import CollectionDebugWrapper as Collection
+
 
         for wrapper in [connection,
                         DatabaseWrapper(connection.settings_dict)]:
             calls = [
-                lambda: self.assertIsInstance(wrapper.get_collection('foo'),
-                                              Collection),
+                lambda: self.assertIsInstance(wrapper.get_collection('foo'), Collection),
                 lambda: self.assertIsInstance(wrapper.database, Database),
                 lambda: self.assertIsInstance(wrapper.connection, MongoClient),
             ]
@@ -179,6 +178,10 @@ class RegressionTests(TestCase):
 class DatabaseOptionTests(TestCase):
     """Tests for MongoDB-specific database options."""
 
+    def setUp(self):
+        Post.objects.all().delete()
+        RawModel.objects.all().delete()
+
     class custom_database_wrapper(object):
 
         def __init__(self, settings, **kwargs):
@@ -193,7 +196,7 @@ class DatabaseOptionTests(TestCase):
             return self.new_wrapper
 
         def __exit__(self, *exc_info):
-            self.new_wrapper.connection.disconnect()
+            self.new_wrapper.connection.close()
             connections._connections.default = self._old_connection
 
     def test_pymongo_connection_args(self):
@@ -201,25 +204,25 @@ class DatabaseOptionTests(TestCase):
         class foodict(dict):
             pass
 
+        tz_aware = True
+        document_class = foodict
+
         with self.custom_database_wrapper({
                 'OPTIONS': {
-                    'SLAVE_OKAY': True,
                     'TZ_AWARE': True,
                     'DOCUMENT_CLASS': foodict,
                 }}) as connection:
-            for name, value in connection.settings_dict[
-                    'OPTIONS'].iteritems():
-                name = '_Connection__%s' % name.lower()
-                if name not in connection.connection.__dict__:
-                    # slave_okay was moved into BaseObject in PyMongo 2.0.
-                    name = name.replace('Connection', 'BaseObject')
-                if name not in connection.connection.__dict__:
-                    # document_class was moved into MongoClient in PyMongo 2.4.
-                    name = name.replace('BaseObject', 'MongoClient')
-                self.assertEqual(connection.connection.__dict__[name], value)
+
+            codec_options = connection.connection.codec_options
+
+            self.assertEqual(codec_options.tz_aware, tz_aware)
+            self.assertEqual(codec_options.document_class, document_class)
+
+
 
     def test_operation_flags(self):
         def test_setup(flags, **method_kwargs):
+
             cls_code = [
                 'from pymongo.collection import Collection',
                 'class Collection(Collection):',
@@ -237,32 +240,22 @@ class DatabaseOptionTests(TestCase):
             exec '\n'.join(cls_code) in locals()
 
             options = {'OPTIONS': {'OPERATIONS': flags}}
-            with self.custom_database_wrapper(options,
-                                              collection_class=Collection):
+            with self.custom_database_wrapper(options, collection_class=Collection):
                 RawModel.objects.create(raw='foo')
                 update_count = RawModel.objects.update(raw='foo'), \
                                RawModel.objects.count()
                 RawModel.objects.all().delete()
 
             for name in method_kwargs:
-                self.assertEqual(method_kwargs[name],
-                                 Collection._method_kwargs[name])
-
+                self.assertEqual(method_kwargs[name], Collection._method_kwargs[name])
 
             self.assertEqual(*update_count)
 
         test_setup({}, save={}, update={'multi': True}, remove={})
-        test_setup({},
-            save={},
-            update={'multi': True},
-            remove={})
-        test_setup({
-            'delete': {}, 'update': {}},
-            save={},
-            update={'multi': True},
-            remove={})
-        test_setup({
-            'insert': {'fsync': True}, 'delete': {'fsync': True}},
+        test_setup({}, save={}, update={'multi': True}, remove={})
+        test_setup({'delete': {}, 'update': {}}, save={}, update={'multi': True}, remove={})
+        test_setup({ 'insert': {'fsync': True}, 'delete': {'fsync': True}},
+
             save={},
             update={'multi': True},
             remove={'fsync': True})
@@ -338,9 +331,12 @@ class NewStyleIndexTests(TestCase):
         info = get_collection(NewStyleIndexesTestModel).index_information()
         index_name = '_'.join('%s_%s' % pair for pair in key)
         default_properties = {'key': self.order_doesnt_matter(key), 'v': 1}
+
         self.assertIn(index_name, info)
-        self.assertEqual(info[index_name],
-                         dict(default_properties, **properties))
+
+        for key, value in dict(default_properties, **properties).iteritems():
+            self.assertEqual(info[index_name][key], value)
+
 
     def test_indexes(self):
         self.assertHaveIndex([('db_index', 1)])
